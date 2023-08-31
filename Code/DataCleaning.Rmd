@@ -1,0 +1,57 @@
+---
+title: "IT1244 Project"
+output: html_document
+---
+
+### Setup
+``` {r setup, results=FALSE, message=FALSE}
+library(tidyverse)
+```
+
+### Files
+``` {r}
+stocks <- read.csv("stocks.csv")
+stocks %>% select(date:open) %>% rowwise() %>% 
+  mutate(date = as.Date(date)) %>% ungroup()-> df
+```
+
+### Organising
+``` {r}
+# identifies missing dates and adds rows of those dates
+# added rows are filled by referencing the immediate previous rows
+fill_missing_dates <- function(symb, df) {
+  rows <- filter(df, symbol == symb) 
+  tibble(date = seq(min(rows$date), max(rows$date), 1)) %>% 
+    mutate(dayofweek = weekdays(date)) %>% 
+    filter(!(dayofweek %in% c("Saturday", "Sunday"))) %>% 
+    left_join(rows, by = "date") %>% 
+    fill(symbol:open, .direction = "down") -> filledrows
+  return(filledrows)
+}
+
+# apply above function for all symbols
+allsymbols <- unique(df$symbol) 
+lapply(allsymbols, fill_missing_dates, df) %>% 
+  bind_rows() -> allfilled
+```
+
+``` {r}
+allfilled %>% group_by(symbol) %>% 
+  mutate(week = floor(difftime(date, min(date), units = "weeks"))) %>%
+  group_by(symbol, week) %>% 
+  pivot_wider(names_from = dayofweek, values_from = close:open) %>% 
+  fill(close_Monday:open_Friday, .direction = "downup") %>% 
+  filter(weekdays(date) == "Friday") %>% ungroup(week) %>% 
+  mutate(next_Fri = lead(close_Friday)) %>% 
+  na.omit() %>% write.csv("./weekly_change_nonbinary.csv")
+
+allfilled %>% group_by(symbol) %>% 
+  mutate(week = floor(difftime(date, min(date), units = "weeks"))) %>%
+  group_by(symbol, week) %>% 
+  pivot_wider(names_from = dayofweek, values_from = close:open) %>% 
+  fill(close_Monday:open_Friday, .direction = "downup") %>% 
+  filter(weekdays(date) == "Friday") %>% ungroup(week) %>% 
+  mutate(next_Fri = lead(close_Friday), 
+         y = ifelse(next_Fri > close_Friday, 1, 0)) %>% 
+  na.omit() %>% write.csv("./weekly_change_tgt.csv")
+```
